@@ -16,8 +16,10 @@ Needs a public HTTPS host that forwards to this server, for example
 
     python examples/outbound_call.py --to 91XXXXXXXXXX --host abcd.ngrok-free.app
 
-Reads ENABLEX_APP_ID, ENABLEX_APP_KEY, ENABLEX_FROM_NUMBER, DEEPGRAM_API_KEY
-and GEMINI_API_KEY from the environment or a .env file.
+Reads ENABLEX_APP_ID, ENABLEX_APP_KEY, ENABLEX_FROM_NUMBER and DEEPGRAM_API_KEY
+from the environment or a .env file, plus an LLM: OPENAI_API_KEY (with optional
+OPENAI_BASE_URL and LLM_MODEL, for OpenRouter or any OpenAI-compatible API), or
+else GEMINI_API_KEY (and optional GEMINI_MODEL).
 """
 
 import argparse
@@ -110,6 +112,26 @@ class Tap(FrameProcessor):
         return f"{self.label} audio: {self.audio_frames} frames, {self.audio_secs:.1f} s at {rates}"
 
 
+def make_llm():
+    """Any OpenAI-compatible endpoint (OpenAI, OpenRouter, ...) if configured, else Gemini."""
+    if os.getenv("OPENAI_API_KEY"):
+        from pipecat.services.openai.llm import OpenAILLMService
+
+        return OpenAILLMService(
+            api_key=os.environ["OPENAI_API_KEY"],
+            base_url=os.getenv("OPENAI_BASE_URL") or None,
+            settings=OpenAILLMService.Settings(
+                model=os.getenv("LLM_MODEL", "gpt-4o-mini"), system_instruction=SYSTEM
+            ),
+        )
+    return GoogleLLMService(
+        api_key=os.environ["GEMINI_API_KEY"],
+        settings=GoogleLLMService.Settings(
+            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"), system_instruction=SYSTEM
+        ),
+    )
+
+
 app = FastAPI()
 
 
@@ -159,12 +181,7 @@ async def ws(websocket: WebSocket):
         ),
     )
     stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])
-    llm = GoogleLLMService(
-        api_key=os.environ["GEMINI_API_KEY"],
-        settings=GoogleLLMService.Settings(
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), system_instruction=SYSTEM
-        ),
-    )
+    llm = make_llm()
     tts = DeepgramTTSService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         settings=DeepgramTTSService.Settings(voice="aura-2-helena-en"),
