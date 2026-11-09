@@ -35,7 +35,15 @@ from fastapi import FastAPI, Request, WebSocket
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import Frame, InputAudioRawFrame, TranscriptionFrame, TTSAudioRawFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    AudioRawFrame,
+    Frame,
+    InputAudioRawFrame,
+    InterruptionFrame,
+    TranscriptionFrame,
+    TTSAudioRawFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -60,8 +68,10 @@ FROM_NUMBER = os.environ["ENABLEX_FROM_NUMBER"]
 RATE = 8000  # EnableX's own rate, so the serializer never resamples
 
 SYSTEM = (
-    "You are a friendly test bot on a phone call. Keep every reply to one or two short "
-    "sentences, with no lists or symbols, because it is spoken aloud."
+    "You are a friendly test bot on a phone call. Keep replies to one or two short "
+    "sentences, with no lists or symbols, because they are spoken aloud. The one "
+    "exception: if the caller asks you to count, count out loud as far as they ask, "
+    "since that is how they test interrupting you."
 )
 GREETING = "Hi, this is the Pipecat test bot on EnableX. Say something and I'll answer."
 
@@ -110,6 +120,31 @@ class Tap(FrameProcessor):
     def summary(self) -> str:
         rates = ", ".join(f"{r} Hz" for r in sorted(self.rates)) or "none"
         return f"{self.label} audio: {self.audio_frames} frames, {self.audio_secs:.1f} s at {rates}"
+
+
+class TimedSerializer(EnableXFrameSerializer):
+    """Logs how much bot audio EnableX still had queued when the caller barged in.
+
+    Pipecat's websocket output sends audio about twice as fast as it plays, so
+    EnableX holds a queue, and barge-in depends on ``clear_media`` emptying it.
+    This models EnableX playing each chunk as soon as the one before it ends.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._play_end = 0.0
+
+    async def serialize(self, frame: Frame):
+        out = await super().serialize(frame)
+        now = time.monotonic()
+        if out and isinstance(frame, AudioRawFrame):
+            secs = len(frame.audio) / (frame.sample_rate * 2 * frame.num_channels)
+            self._play_end = max(self._play_end, now) + secs
+        elif out and isinstance(frame, InterruptionFrame):
+            queued = max(0.0, self._play_end - now)
+            mark(f"barge-in: clear_media sent, ~{queued:.1f} s of bot audio was queued at EnableX")
+            self._play_end = now
+        return out
 
 
 def make_llm():
@@ -170,7 +205,7 @@ async def ws(websocket: WebSocket):
     await websocket.accept()
     mark("EnableX opened the websocket")
 
-    serializer = EnableXFrameSerializer(app_id=APP_ID, app_key=APP_KEY)
+    serializer = TimedSerializer(app_id=APP_ID, app_key=APP_KEY)
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
