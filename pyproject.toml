@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipecat-enablex"
+version = "0.1.0"
+description = "Pipecat frame serializer for EnableX Voice Media Streaming"
+readme = "README.md"
+license = { text = "BSD-2-Clause" }
+authors = [{ name = "Rehan Sanjay Venkatesan" }]
+requires-python = ">=3.10"
+dependencies = ["pipecat-ai>=1.15.0", "aiohttp>=3.9"]
+keywords = ["pipecat", "enablex", "voice", "telephony", "websocket", "voice-agents"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "pipecat-ai[websocket]", "uvicorn"]
+
+[project.urls]
+Homepage = "https://github.com/Rehansanjay/pipecat-enablex"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
