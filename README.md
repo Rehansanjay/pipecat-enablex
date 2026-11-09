@@ -137,8 +137,29 @@ pytest
 Run against Pipecat **1.15.0** and against **main**. Each behaviour was checked
 by breaking it and confirming a test fails.
 
-Not yet tested on a live EnableX call, which needs streaming enabled on an
-EnableX account.
+### Live calls
+
+Tested on real EnableX calls on 9 Nov 2026, from an EnableX trial number to an
+Indian mobile, with [`examples/outbound_call.py`](examples/outbound_call.py)
+(Deepgram speech-to-text and text-to-speech, an OpenAI-compatible LLM, the
+pipeline at 8 kHz):
+
+- dial-out, `connected` webhook, stream start (`stream_started`), `start_media`
+  and the call's end (`stop_media`, `stream_stopped`, `disconnected`) all as
+  documented
+- every caller sentence transcribed, and the bot's replies heard clearly
+- barge-in: asked to count to thirty and told to stop at five, the bot stopped
+  at six, with about 0.1 s of its audio still queued at EnableX when
+  `clear_media` was sent
+
+On a trial account EnableX ends every call at 45 seconds.
+
+To run it yourself: start `ngrok http 8765`, put your keys in `.env` (see the
+top of the example), then
+
+```
+python examples/outbound_call.py --to 91XXXXXXXXXX --host your-subdomain.ngrok-free.app
+```
 
 ## License
 
